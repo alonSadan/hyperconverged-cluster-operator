@@ -2,16 +2,20 @@ package hyperconverged
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"reflect"
 	"strings"
 
+	hcov1alpha1 "github.com/kubevirt/hyperconverged-cluster-operator/pkg/apis/hco/v1alpha1"
+
 	"github.com/go-logr/logr"
 	"github.com/operator-framework/operator-sdk/pkg/ready"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/reference"
+	"kubevirt.io/kubevirt/tools/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -23,7 +27,6 @@ import (
 	sspv1 "github.com/MarSik/kubevirt-ssp-operator/pkg/apis/kubevirt/v1"
 	networkaddonsv1alpha1 "github.com/kubevirt/cluster-network-addons-operator/pkg/apis/networkaddonsoperator/v1alpha1"
 	networkaddonsnames "github.com/kubevirt/cluster-network-addons-operator/pkg/names"
-	hcov1alpha1 "github.com/kubevirt/hyperconverged-cluster-operator/pkg/apis/hco/v1alpha1"
 	conditionsv1 "github.com/openshift/custom-resource-status/conditions/v1"
 	objectreferencesv1 "github.com/openshift/custom-resource-status/objectreferences/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -295,16 +298,18 @@ func newKubeVirtConfigForCR(cr *hcov1alpha1.HyperConverged, namespace string) *c
 	labels := map[string]string{
 		"app": cr.Name,
 	}
+	data := make(map[string]string)
+	writer := strings.Builder{}
+	err := util.MarshallObject(cr.Spec.KubevirtConfigurations, &writer)
+	check(err)
+	err = json.Unmarshal([]byte(writer.String()), &data)
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "kubevirt-config",
 			Labels:    labels,
 			Namespace: namespace,
 		},
-		Data: map[string]string{
-			"feature-gates": "DataVolumes,SRIOV,LiveMigration,CPUManager,CPUNodeDiscovery,Sidecar",
-			"migrations":    `{"nodeDrainTaintKey" : "node.kubernetes.io/unschedulable"}`,
-		},
+		Data: data,
 	}
 }
 
@@ -352,7 +357,12 @@ func newKubeVirtForCR(cr *hcov1alpha1.HyperConverged, namespace string) *kubevir
 			Labels:    labels,
 			Namespace: namespace,
 		},
+		Spec: kubevirtv1.KubeVirtSpec{
+			
+			KubevirtConfigurations: cr.Spec.KubevirtConfigurations,
+		},
 	}
+
 }
 
 func (r *ReconcileHyperConverged) ensureKubeVirt(instance *hcov1alpha1.HyperConverged, logger logr.Logger, request reconcile.Request) error {
@@ -1084,4 +1094,10 @@ func isKVMAvailable() bool {
 	}
 	log.Info("Running with KVM available")
 	return true
+}
+
+func check(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
