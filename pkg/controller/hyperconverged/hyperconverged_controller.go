@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/kubevirt/hyperconverged-cluster-operator/tools/util"
 	"github.com/operator-framework/operator-sdk/pkg/ready"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -757,6 +758,7 @@ func newKubeVirtConfigForCR(cr *hcov1alpha1.HyperConverged, namespace string) *c
 	labels := map[string]string{
 		hcoutil.AppLabel: cr.Name,
 	}
+	data := util.InterfaceToMap(cr.Spec.KubevirtConfiguration)
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "kubevirt-config",
@@ -765,11 +767,7 @@ func newKubeVirtConfigForCR(cr *hcov1alpha1.HyperConverged, namespace string) *c
 		},
 		// only virtconfig.SmbiosConfigKey, virtconfig.MachineTypeKey, virtconfig.SELinuxLauncherTypeKey and
 		// "debug.useEmulation" are going to be manipulated and only on HCO upgrades
-		Data: map[string]string{
-			virtconfig.FeatureGatesKey:        "DataVolumes,SRIOV,LiveMigration,CPUManager,CPUNodeDiscovery,Sidecar",
-			virtconfig.MigrationsConfigKey:    `{"nodeDrainTaintKey" : "node.kubernetes.io/unschedulable"}`,
-			virtconfig.SELinuxLauncherTypeKey: "virt_launcher.process",
-		},
+		Data: data,
 	}
 	val, ok := os.LookupEnv("SMBIOS")
 	if ok && val != "" {

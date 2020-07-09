@@ -2,6 +2,7 @@ package hyperconverged
 
 import (
 	"os"
+	"strings"
 
 	sspv1 "github.com/MarSik/kubevirt-ssp-operator/pkg/apis/kubevirt/v1"
 	networkaddonsv1alpha1 "github.com/kubevirt/cluster-network-addons-operator/pkg/apis/networkaddonsoperator/v1alpha1"
@@ -241,6 +242,28 @@ var _ = Describe("HyperConverged Components", func() {
 
 			Expect(foundResource.Data).To(Equal(outdatedResource.Data))
 			Expect(foundResource.Data).To(Not(Equal(expectedResource.Data)))
+		})
+
+		It("should pass configurations form HCO-CR to kubevirt-configMap", func() {
+			hco.Spec = hcov1alpha1.HyperConvergedSpec{
+				KubevirtConfigurations: hcov1alpha1.KubevirtConfigurations{
+					MachineType: "some_type",
+				},
+			}
+			expectedResource := newKubeVirtConfigForCR(hco, namespace)
+			Expect(strings.Contains(expectedResource.Data["MachineType"], "some_type"))
+
+			cl := initClient([]runtime.Object{})
+			r := initReconciler(cl)
+			Expect(r.ensureKubeVirtConfig(hco, log, request)).To(BeNil())
+			foundResource := &corev1.ConfigMap{}
+			cl.Get(context.TODO(),
+				types.NamespacedName{Name: expectedResource.ObjectMeta.Name, Namespace: expectedResource.ObjectMeta.Namespace},
+				foundResource)
+			Expect(foundResource.Name).To(Equal(expectedResource.Name))
+			Expect(foundResource.Labels).Should(HaveKeyWithValue("app", name))
+			Expect(foundResource.Namespace).To(Equal(expectedResource.Namespace))
+			Expect(strings.Contains(foundResource.Data["MachineType"], "some_type"))
 		})
 	})
 

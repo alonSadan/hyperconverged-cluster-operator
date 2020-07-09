@@ -1,10 +1,10 @@
 package v1alpha1
 
 import (
+	conditionsv1 "github.com/openshift/custom-resource-status/conditions/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	conditionsv1 "github.com/openshift/custom-resource-status/conditions/v1"
+	kubevirtv1 "kubevirt.io/client-go/api/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -29,6 +29,9 @@ type HyperConvergedSpec struct {
 
 	// operator version
 	Version string `json:"version,omitempty"`
+
+	//configurations to be passed to kubevirt config-map
+	KubevirtConfiguration kubevirtv1.KubeVirtConfiguration `json:"kubevirtConfiguration,omitempty"`
 }
 
 // HyperConvergedStatus defines the observed state of HyperConverged

@@ -3,9 +3,12 @@ package components
 import (
 	"encoding/json"
 	"fmt"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/kubevirt/hyperconverged-cluster-operator/pkg/util"
+	toolsUtil "github.com/kubevirt/hyperconverged-cluster-operator/tools/util"
 
 	"github.com/blang/semver"
 	hcov1alpha1 "github.com/kubevirt/hyperconverged-cluster-operator/pkg/apis/hco/v1alpha1"
@@ -17,7 +20,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	extv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubevirtv1 "kubevirt.io/client-go/api/v1"
+
+	virtconfig "kubevirt.io/kubevirt/pkg/virt-config"
 )
 
 const (
@@ -674,6 +681,7 @@ func GetOperatorCR() *hcov1alpha1.HyperConverged {
 		Spec: hcov1alpha1.HyperConvergedSpec{
 			BareMetalPlatform:     false,
 			LocalStorageClassName: "",
+			KubevirtConfiguration: *getDefaultKubevirtConfiguration(),
 		},
 	}
 }
@@ -708,7 +716,8 @@ func GetCSVBase(name, namespace, displayName, description, image, replaces strin
 				"namespace": namespace,
 			},
 			"spec": map[string]interface{}{
-				"BareMetalPlatform": false,
+				"BareMetalPlatform":      false,
+				"KubevirtConfigurations": toolsUtil.InterfaceToMap(*getDefaultKubevirtConfiguration()),
 			},
 		},
 	})
@@ -861,4 +870,93 @@ func GetCSVBase(name, namespace, displayName, description, image, replaces strin
 
 func int32Ptr(i int32) *int32 {
 	return &i
+}
+
+// only virtconfig.SmbiosConfigKey, virtconfig.MachineTypeKey, virtconfig.SELinuxLauncherTypeKey and
+// "debug.useEmulation" are going to be manipulated and only on HCO upgrades
+//
+func getDefaultKubevirtConfiguration() *kubevirtv1.KubeVirtConfiguration {
+	defaultImagePullPolicy := virtconfig.DefaultImagePullPolicy
+	defaultUseEmulation := virtconfig.DefaultUseEmulation
+	defaultMemoryOvercommit := virtconfig.DefaultMemoryOvercommit
+	defaultLessPVCSpaceToleration := virtconfig.DefaultLessPVCSpaceToleration
+	nodeSelectorsDefault, _ := parseNodeSelectors(virtconfig.DefaultNodeSelectors)
+	defaultFeatureGates := strings.Split("DataVolumes,SRIOV,LiveMigration,CPUManager,CPUNodeDiscovery,Sidecar", ",")
+
+	parallelMigrationsPerClusterDefault := virtconfig.ParallelMigrationsPerClusterDefault
+	parallelOutboundMigrationsPerNodeDefault := virtconfig.ParallelOutboundMigrationsPerNodeDefault
+	bandwithPerMigrationDefault := resource.MustParse(virtconfig.BandwithPerMigrationDefault)
+	nodeDrainTaintDefaultKey := "node.kubernetes.io/unschedulable"
+	progressTimeout := virtconfig.MigrationProgressTimeout
+	completionTimeoutPerGiB := virtconfig.MigrationCompletionTimeoutPerGiB
+	defaultUnsafeMigrationOverride := virtconfig.DefaultUnsafeMigrationOverride
+	allowAutoConverge := virtconfig.MigrationAllowAutoConverge
+
+	defaultMachineType := virtconfig.DefaultMachineType
+	cpuRequestDefault := resource.MustParse(virtconfig.DefaultCPURequest)
+	emulatedMachinesDefault := strings.Split(virtconfig.DefaultEmulatedMachines, ",")
+	defaultNetworkInterface := "masquerade"
+	defaultPermitSlirpInterface := virtconfig.DefaultPermitSlirpInterface
+	defaultPermitBridgeInterfaceOnPodNetwork := virtconfig.DefaultPermitBridgeInterfaceOnPodNetwork
+
+	smbiosDefaultConfig := &kubevirtv1.SMBiosConfiguration{
+		Family:       virtconfig.SmbiosConfigDefaultFamily,
+		Manufacturer: virtconfig.SmbiosConfigDefaultManufacturer,
+		Product:      virtconfig.SmbiosConfigDefaultProduct,
+	}
+	defaultSELinuxLauncherType := "virt_launcher.process"
+	supportedQEMUGuestAgentVersions := strings.Split(strings.TrimRight(virtconfig.SupportedGuestAgentVersions, ","), ",")
+	defaultOVMFPath := virtconfig.DefaultOVMFPath
+
+	return &kubevirtv1.KubeVirtConfiguration{
+		ImagePullPolicy: defaultImagePullPolicy,
+		DeveloperConfiguration: &kubevirtv1.DeveloperConfiguration{
+			UseEmulation:           defaultUseEmulation,
+			MemoryOvercommit:       defaultMemoryOvercommit,
+			LessPVCSpaceToleration: defaultLessPVCSpaceToleration,
+			NodeSelectors:          nodeSelectorsDefault,
+			FeatureGates:           defaultFeatureGates,
+		},
+		MigrationConfiguration: &kubevirtv1.MigrationConfiguration{
+			ParallelMigrationsPerCluster:      &parallelMigrationsPerClusterDefault,
+			ParallelOutboundMigrationsPerNode: &parallelOutboundMigrationsPerNodeDefault,
+			BandwidthPerMigration:             &bandwithPerMigrationDefault,
+			NodeDrainTaintKey:                 &nodeDrainTaintDefaultKey,
+			ProgressTimeout:                   &progressTimeout,
+			CompletionTimeoutPerGiB:           &completionTimeoutPerGiB,
+			UnsafeMigrationOverride:           defaultUnsafeMigrationOverride,
+			AllowAutoConverge:                 allowAutoConverge,
+		},
+		MachineType:      defaultMachineType,
+		CPURequest:       &cpuRequestDefault,
+		EmulatedMachines: emulatedMachinesDefault,
+		NetworkConfiguration: &kubevirtv1.NetworkConfiguration{
+			NetworkInterface:                  defaultNetworkInterface,
+			PermitSlirpInterface:              defaultPermitSlirpInterface,
+			PermitBridgeInterfaceOnPodNetwork: defaultPermitBridgeInterfaceOnPodNetwork,
+		},
+		SMBIOSConfig:                smbiosDefaultConfig,
+		SELinuxLauncherType:         defaultSELinuxLauncherType,
+		SupportedGuestAgentVersions: supportedQEMUGuestAgentVersions,
+		OVMFPath:                    defaultOVMFPath,
+	}
+}
+
+func parseNodeSelectors(str string) (map[string]string, error) {
+	nodeSelectors := make(map[string]string)
+	for _, s := range strings.Split(strings.TrimSpace(str), "\n") {
+		v := strings.Split(s, "=")
+		if len(v) != 2 {
+			return nil, fmt.Errorf("Invalid node selector: %s", s)
+		}
+		nodeSelectors[v[0]] = v[1]
+	}
+	return nodeSelectors, nil
+}
+
+func getDefaultMachinesForArch() (string, string) {
+	if runtime.GOARCH == "ppc64le" {
+		return virtconfig.DefaultPPC64LEMachineType, virtconfig.DefaultPPC64LEEmulatedMachines
+	}
+	return virtconfig.DefaultAMD64MachineType, virtconfig.DefaultAMD64EmulatedMachines
 }
